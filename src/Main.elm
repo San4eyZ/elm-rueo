@@ -4,9 +4,11 @@ import Browser exposing (Document)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events as Events exposing (onInput)
+import Html.Parser as Parser exposing (Node(..))
+import Html.Parser.Util exposing (toVirtualDom)
 import Http
 import Json.Decode as Decode
-import Task
+import Regex exposing (Regex)
 
 
 
@@ -25,6 +27,22 @@ main =
 urlBase : String
 urlBase =
     "http://rueo.ru/sercxo"
+
+
+assuredRegex : String -> Regex
+assuredRegex str =
+    Maybe.withDefault Regex.never <|
+        Regex.fromStringWith { caseInsensitive = False, multiline = True } str
+
+
+scriptTagRegex : Regex
+scriptTagRegex =
+    assuredRegex "<script.*?>((.|\n)*?)<\\/script>"
+
+
+trailingDivRegex : Regex
+trailingDivRegex =
+    assuredRegex "<\\/div>(?!(.|\n)*?(div)(.|\n)*?$)"
 
 
 getWords : String -> Cmd Msg
@@ -51,7 +69,10 @@ type State
 
 
 type alias Model =
-    { state : State, input : String, article : Maybe Article }
+    { state : State
+    , input : String
+    , article : Maybe (Html Msg)
+    }
 
 
 init : () -> ( Model, Cmd Msg )
@@ -128,7 +149,7 @@ processGotArticleResponse : Model -> Result Http.Error Article -> ( Model, Cmd M
 processGotArticleResponse model result =
     case result of
         Ok article ->
-            ( { model | article = Just article }, Cmd.none )
+            ( { model | article = Just (prepareArticle article) }, Cmd.none )
 
         _ ->
             ( model, Cmd.none )
@@ -175,7 +196,7 @@ articleView : Model -> Html Msg
 articleView model =
     case model.article of
         Just article ->
-            div [] [ text article ]
+            article
 
         Nothing ->
             div [] []
@@ -204,3 +225,87 @@ decodeWordLabel =
 decodeItems : Decode.Decoder (List String)
 decodeItems =
     Decode.list decodeWordLabel
+
+
+
+-- Результаты поиска в HTML
+
+
+findSearchResultInList : List Node -> Node
+findSearchResultInList nodes =
+    Maybe.withDefault (Text "") (List.foldl lazyNodeFind Nothing nodes)
+
+
+lazyNodeFind : Node -> Maybe Node -> Maybe Node
+lazyNodeFind node m =
+    case m of
+        Nothing ->
+            findSearchResult node
+
+        Just n ->
+            Just n
+
+
+findSearchResult : Node -> Maybe Node
+findSearchResult node =
+    case node of
+        Element name attrs children ->
+            if containsSearchResult attrs then
+                Just node
+
+            else
+                List.foldl lazyNodeFind Nothing children
+
+        Text _ ->
+            Nothing
+
+        Comment _ ->
+            Nothing
+
+
+containsSearchResult : List ( String, String ) -> Bool
+containsSearchResult attributes =
+    List.any (\( name, val ) -> name == "class" && val == "search_result") attributes
+
+
+
+-- Форматирование статьи
+
+
+reducers : List (String -> String)
+reducers =
+    [ removeDoctype, dediv, descript ]
+
+
+prepareArticle : Article -> Html Msg
+prepareArticle article =
+    parseHtml (List.foldl (\a b -> a b) article reducers)
+
+
+descript : String -> String
+descript html =
+    Regex.replace scriptTagRegex (\_ -> "") html
+
+
+dediv : String -> String
+dediv html =
+    Regex.replace trailingDivRegex (\_ -> "") html
+
+
+removeDoctype : String -> String
+removeDoctype html =
+    List.foldr (++) "" (List.drop 1 (String.split "\n" html))
+
+
+parseHtml : String -> Html Msg
+parseHtml html =
+    let
+        result =
+            Parser.run html
+    in
+    case result of
+        Ok tree ->
+            div [] (toVirtualDom [ findSearchResultInList tree ])
+
+        _ ->
+            text "Error"
