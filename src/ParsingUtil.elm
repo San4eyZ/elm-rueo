@@ -1,4 +1,4 @@
-module Parsing.Util exposing (toVirtualDom, toVirtualDomWrapWords)
+module ParsingUtil exposing (toVirtualDom, toVirtualDomWrapWords)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -41,7 +41,7 @@ processText s =
 wrapOdds : Int -> String -> Html msg
 wrapOdds i word =
     if remainderBy 2 i == 1 then
-        span [] [ text word ]
+        span [class "clickable"] [ text word ]
 
     else
         text word

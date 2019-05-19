@@ -1,4 +1,4 @@
-module Main exposing (Model, getWords, init, main, urlBase)
+module Main exposing (Model, Msg, init, main)
 
 import Browser exposing (Document)
 import Html exposing (..)
@@ -7,7 +7,7 @@ import Html.Events as Events exposing (onInput)
 import Html.Parser as Parser exposing (Node(..))
 import Http
 import Json.Decode as Decode
-import Parsing.Util exposing (toVirtualDomWrapWords)
+import ParsingUtil exposing (toVirtualDomWrapWords)
 import Regex exposing (Regex)
 import Regexes exposing (..)
 
@@ -76,7 +76,8 @@ type alias GotWordsResult =
 
 
 type Msg
-    = Input String
+    = Idle
+    | Input String
     | SelectWord String
     | GotWords (Result Http.Error GotWordsResult)
     | GotArticle (Result Http.Error Article)
@@ -96,6 +97,9 @@ update msg model =
 
         GotArticle result ->
             processGotArticleResponse model result
+
+        Idle ->
+            ( model, Cmd.none )
 
 
 view : Model -> Document Msg
@@ -185,14 +189,6 @@ articleView model =
 
         Nothing ->
             div [] []
-
-
-onWordSelect : Html.Attribute Msg
-onWordSelect =
-    Events.on "click" <|
-        Decode.field "target" <|
-            Decode.map SelectWord <|
-                Decode.field "innerText" Decode.string
 
 
 makeWordOption : String -> Html Msg
@@ -298,7 +294,50 @@ processResult : Result a (List Node) -> Html Msg
 processResult nodes =
     case nodes of
         Ok tree ->
-            div [] (toVirtualDomWrapWords [ findSearchResultInList tree ])
+            div [ onWordClick ] (toVirtualDomWrapWords [ findSearchResultInList tree ])
 
         _ ->
             text "Error"
+
+
+
+-- Events
+
+
+onWordClick : Html.Attribute Msg
+onWordClick =
+    Events.on "click" <|
+        Decode.map pairToMsg <|
+            decodeClassTextPair
+
+
+decodeClassName : Decode.Decoder String
+decodeClassName =
+    Decode.at [ "target", "className" ] Decode.string
+
+
+decodeInnerText : Decode.Decoder String
+decodeInnerText =
+    Decode.at [ "target", "innerText" ] Decode.string
+
+
+decodeClassTextPair : Decode.Decoder ( String, String )
+decodeClassTextPair =
+    Decode.map2 Tuple.pair decodeClassName decodeInnerText
+
+
+pairToMsg : ( String, String ) -> Msg
+pairToMsg ( className, innerText ) =
+    case className of
+        "clickable" ->
+            SelectWord innerText
+
+        _ ->
+            Idle
+
+
+onWordSelect : Html.Attribute Msg
+onWordSelect =
+    Events.on "click" <|
+        Decode.map SelectWord <|
+            Decode.at [ "target", "innerText" ] Decode.string
