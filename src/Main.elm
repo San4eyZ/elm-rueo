@@ -5,10 +5,11 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events as Events exposing (onInput)
 import Html.Parser as Parser exposing (Node(..))
-import Html.Parser.Util exposing (toVirtualDom)
 import Http
 import Json.Decode as Decode
+import Parsing.Util exposing (toVirtualDomWrapWords)
 import Regex exposing (Regex)
+import Regexes exposing (..)
 
 
 
@@ -27,22 +28,6 @@ main =
 urlBase : String
 urlBase =
     "http://rueo.ru/sercxo"
-
-
-assuredRegex : String -> Regex
-assuredRegex str =
-    Maybe.withDefault Regex.never <|
-        Regex.fromStringWith { caseInsensitive = False, multiline = True } str
-
-
-scriptTagRegex : Regex
-scriptTagRegex =
-    assuredRegex "<script.*?>((.|\n)*?)<\\/script>"
-
-
-trailingDivRegex : Regex
-trailingDivRegex =
-    assuredRegex "<\\/div>(?!(.|\n)*?(div)(.|\n)*?$)"
 
 
 getWords : String -> Cmd Msg
@@ -71,7 +56,7 @@ type State
 type alias Model =
     { state : State
     , input : String
-    , article : Maybe (Html Msg)
+    , article : Maybe Article
     }
 
 
@@ -149,7 +134,7 @@ processGotArticleResponse : Model -> Result Http.Error Article -> ( Model, Cmd M
 processGotArticleResponse model result =
     case result of
         Ok article ->
-            ( { model | article = Just (prepareArticle article) }, Cmd.none )
+            ( { model | article = Just article }, Cmd.none )
 
         _ ->
             ( model, Cmd.none )
@@ -196,7 +181,7 @@ articleView : Model -> Html Msg
 articleView model =
     case model.article of
         Just article ->
-            article
+            prepareArticle article
 
         Nothing ->
             div [] []
@@ -204,7 +189,10 @@ articleView model =
 
 onWordSelect : Html.Attribute Msg
 onWordSelect =
-    Events.on "click" (Decode.field "target" (Decode.map SelectWord (Decode.field "innerText" Decode.string)))
+    Events.on "click" <|
+        Decode.field "target" <|
+            Decode.map SelectWord <|
+                Decode.field "innerText" Decode.string
 
 
 makeWordOption : String -> Html Msg
@@ -274,38 +262,43 @@ containsSearchResult attributes =
 
 reducers : List (String -> String)
 reducers =
-    [ removeDoctype, dediv, descript ]
+    [ removeDoctype, removeTrailingDiv, removeScripts ]
 
 
 prepareArticle : Article -> Html Msg
 prepareArticle article =
-    parseHtml (List.foldl (\a b -> a b) article reducers)
+    List.foldl (<|) article reducers |> parseHtml
 
 
-descript : String -> String
-descript html =
-    Regex.replace scriptTagRegex (\_ -> "") html
+removeScripts : String -> String
+removeScripts html =
+    Regex.replace scriptTagRegex (always "") html
 
 
-dediv : String -> String
-dediv html =
-    Regex.replace trailingDivRegex (\_ -> "") html
+removeTrailingDiv : String -> String
+removeTrailingDiv html =
+    Regex.replace trailingDivRegex (always "") html
 
 
 removeDoctype : String -> String
 removeDoctype html =
-    List.foldr (++) "" (List.drop 1 (String.split "\n" html))
+    if Regex.contains doctypeRegex html then
+        List.foldr (++) "" (String.split "\n" html |> List.drop 1)
+
+    else
+        html
 
 
 parseHtml : String -> Html Msg
 parseHtml html =
-    let
-        result =
-            Parser.run html
-    in
-    case result of
+    Parser.run html |> processResult
+
+
+processResult : Result a (List Node) -> Html Msg
+processResult nodes =
+    case nodes of
         Ok tree ->
-            div [] (toVirtualDom [ findSearchResultInList tree ])
+            div [] (toVirtualDomWrapWords [ findSearchResultInList tree ])
 
         _ ->
             text "Error"
