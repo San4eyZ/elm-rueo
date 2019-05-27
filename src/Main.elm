@@ -7,7 +7,9 @@ import Html.Events as Events exposing (onInput)
 import Html.Parser as Parser exposing (Node(..))
 import Http
 import Json.Decode as Decode
+import Json.Encode as Encode
 import ParsingUtil exposing (toVirtualDomWrapWords)
+import Ports exposing (..)
 import Regex exposing (Regex)
 import Regexes exposing (..)
 
@@ -38,12 +40,15 @@ getWords query =
         }
 
 
-getArticle : String -> Cmd Msg
-getArticle word =
-    Http.get
-        { url = urlBase ++ "/" ++ word
-        , expect = Http.expectString GotArticle
-        }
+getArticle : String -> Model -> Cmd Msg
+getArticle word model =
+    Cmd.batch
+        [ Http.get
+            { url = urlBase ++ "/" ++ word
+            , expect = Http.expectString GotArticle
+            }
+        , saveHistory <| [ word ] ++ model.history
+        ]
 
 
 type State
@@ -57,12 +62,13 @@ type alias Model =
     { state : State
     , input : String
     , article : Maybe Article
+    , history : List String
     }
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
-    ( Model Initial "" Nothing
+init : List String -> ( Model, Cmd Msg )
+init history =
+    ( Model Initial "" Nothing history
     , Cmd.none
     )
 
@@ -81,6 +87,7 @@ type Msg
     | SelectWord String
     | GotWords (Result Http.Error GotWordsResult)
     | GotArticle (Result Http.Error Article)
+    | SetHistory (List String)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -93,10 +100,13 @@ update msg model =
             processInput model str
 
         SelectWord str ->
-            ( model, getArticle str )
+            ( model, getArticle str model )
 
         GotArticle result ->
             processGotArticleResponse model result
+
+        SetHistory history ->
+            ( { model | history = history }, Cmd.none )
 
         Idle ->
             ( model, Cmd.none )
@@ -111,8 +121,14 @@ view model =
             , errorBlock model
             , wordsList model
             , articleView model
+            , historyView model
             ]
         ]
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    updateHistory SetHistory
 
 
 processGotWordsResponse : Model -> Result Http.Error GotWordsResult -> ( Model, Cmd Msg )
@@ -181,6 +197,11 @@ wordsList model =
             div [] []
 
 
+historyView : Model -> Html Msg
+historyView model =
+    div [] <| List.map (\word -> div [] [ text word ]) model.history
+
+
 articleView : Model -> Html Msg
 articleView model =
     case model.article of
@@ -194,11 +215,6 @@ articleView model =
 makeWordOption : String -> Html Msg
 makeWordOption name =
     div [ onWordSelect ] [ text name ]
-
-
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.none
 
 
 decodeWordLabel : Decode.Decoder String
