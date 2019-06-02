@@ -129,11 +129,17 @@ view model =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions _ =
+subscriptions model =
     Sub.batch
         [ updateHistory SetHistory
         , searchKeyPressed Input
+        , backspaceKeyPressed (\_ -> Input (trimLast model.input))
         ]
+
+
+trimLast : String -> String
+trimLast str =
+    String.dropRight 1 str
 
 
 processGotWordsResponse : Model -> Result Http.Error GotWordsResult -> ( Model, Cmd Msg )

@@ -27,6 +27,12 @@
           app.ports.searchKeyPressed.send(e.key);
         }
       });
+
+      document.body.addEventListener("keydown", e => {
+        if (e.key === "Backspace") {
+          app.ports.backspaceKeyPressed.send(true);
+        }
+      });
     </script>
   </body>
 </html>
