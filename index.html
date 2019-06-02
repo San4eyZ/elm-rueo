@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Main</title>
+    <script src="main.js"></script>
+  </head>
+
+  <body>
+    <div id="elm"></div>
+    <script>
+      var app = Elm.Main.init({
+        node: document.getElementById("elm"),
+        flags: JSON.parse(localStorage.getItem("history") || "[]")
+      });
+
+      app.ports.saveHistory.subscribe(function(data) {
+        const updatedHistory = JSON.stringify(data);
+
+        localStorage.setItem("history", updatedHistory);
+
+        app.ports.updateHistory.send(JSON.parse(updatedHistory));
+      });
+
+      document.body.addEventListener("keypress", e => {
+        if (e.key.match(/^[a-zA-Zа-яА-ЯёЁ]$/)) {
+          app.ports.searchKeyPressed.send(e.key);
+        }
+      });
+    </script>
+  </body>
+</html>

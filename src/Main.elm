@@ -127,8 +127,11 @@ view model =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
-    updateHistory SetHistory
+subscriptions _ =
+    Sub.batch
+        [ updateHistory SetHistory
+        , searchKeyPressed Input
+        ]
 
 
 processGotWordsResponse : Model -> Result Http.Error GotWordsResult -> ( Model, Cmd Msg )
