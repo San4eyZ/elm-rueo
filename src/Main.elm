@@ -1,6 +1,7 @@
 module Main exposing (Model, Msg, init, main)
 
 import Browser exposing (Document)
+import Browser.Dom as Dom exposing (focus)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events as Events exposing (onInput)
@@ -12,6 +13,7 @@ import ParsingUtil exposing (toVirtualDomWrapWords)
 import Ports exposing (..)
 import Regex exposing (Regex)
 import Regexes exposing (..)
+import Task
 
 
 
@@ -150,7 +152,12 @@ processInput model str =
         ( { model | input = str, state = Initial }, Cmd.none )
 
     else
-        ( { model | input = str, state = Loading }, getWords str )
+        ( { model | input = str, state = Loading }
+        , Cmd.batch
+            [ getWords str
+            , Task.attempt (\_ -> Idle) <| Dom.focus "search"
+            ]
+        )
 
 
 processGotArticleResponse : Model -> Result Http.Error Article -> ( Model, Cmd Msg )
@@ -166,8 +173,21 @@ processGotArticleResponse model result =
 searchField : Model -> Html Msg
 searchField model =
     div []
-        [ input [ type_ "text", onInput Input, value model.input, placeholder "Поиск..." ] []
+        [ input
+            [ type_ "text"
+            , onInput Input
+            , value model.input
+            , placeholder "Поиск..."
+            , id "search"
+            , propagationlessKeyPress
+            ]
+            []
         ]
+
+
+propagationlessKeyPress : Html.Attribute Msg
+propagationlessKeyPress =
+    Events.stopPropagationOn "keypress" <| Decode.succeed ( Idle, True )
 
 
 loader : Model -> Html Msg
