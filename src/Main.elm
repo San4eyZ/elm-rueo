@@ -287,7 +287,7 @@ findSearchResult : Node -> Maybe Node
 findSearchResult node =
     case node of
         Element name attrs children ->
-            if containsSearchResult attrs then
+            if containsSearchResultClassName attrs then
                 Just node
 
             else
@@ -300,9 +300,28 @@ findSearchResult node =
             Nothing
 
 
-containsSearchResult : List ( String, String ) -> Bool
-containsSearchResult attributes =
+stripKom : Node -> Node
+stripKom node =
+    case node of
+        Element name attrs children ->
+            if containsKomClassName attrs then
+                Comment "" -- Comment используем вместо Text, так как Text делает лишнюю обертку в DOM дереве
+
+            else
+                Element name attrs <| List.map stripKom children
+
+        _ ->
+            node
+
+
+containsSearchResultClassName : List ( String, String ) -> Bool
+containsSearchResultClassName attributes =
     List.any (\( name, val ) -> name == "class" && val == "search_result") attributes
+
+
+containsKomClassName : List ( String, String ) -> Bool
+containsKomClassName attributes =
+    List.any (\( name, val ) -> name == "class" && val == "kom") attributes
 
 
 
@@ -347,7 +366,7 @@ processResult : Result a (List Node) -> Html Msg
 processResult nodes =
     case nodes of
         Ok tree ->
-            div [ onWordClick Input ] (toVirtualDomWrapWords [ findSearchResultInList tree ])
+            div [ onWordClick Input ] (toVirtualDomWrapWords [ stripKom <| findSearchResultInList tree ])
 
         _ ->
             text "Error"

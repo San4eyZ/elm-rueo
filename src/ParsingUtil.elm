@@ -1,4 +1,4 @@
-module ParsingUtil exposing (toVirtualDom, toVirtualDomWrapWords)
+module ParsingUtil exposing (toVirtualDomWrapWords)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -45,24 +45,6 @@ wrapOdds i word =
 
     else
         text word
-
-
-toVirtualDom : List Node -> List (Html msg)
-toVirtualDom nodes =
-    List.map toVirtualDomEachWrapWords nodes
-
-
-toVirtualDomEach : Node -> Html msg
-toVirtualDomEach node =
-    case node of
-        Element name attrs children ->
-            Html.node name (List.map toAttribute attrs) (toVirtualDomWrapWords children)
-
-        Text s ->
-            text s
-
-        Comment _ ->
-            text ""
 
 
 toAttribute : ( String, String ) -> Attribute msg
