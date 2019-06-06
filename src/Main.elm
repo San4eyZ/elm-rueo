@@ -9,6 +9,7 @@ import Html.Parser as Parser exposing (Node(..))
 import Http
 import Json.Decode as Decode
 import Json.Encode as Encode
+import List.Extra
 import ParsingUtil exposing (toVirtualDomWrapWords)
 import Ports exposing (..)
 import Regex exposing (Regex)
@@ -49,7 +50,7 @@ getArticle word model =
             { url = urlBase ++ "/" ++ word
             , expect = Http.expectString GotArticle
             }
-        , saveHistory <| [ word ] ++ model.history
+        , saveHistory <| List.Extra.unique <| [ word ] ++ model.history
         ]
 
 
@@ -102,7 +103,7 @@ update msg model =
             processInput model str
 
         SelectWord str ->
-            ( model, getArticle str model )
+            ( { model | input = str }, getArticle str model )
 
         GotArticle result ->
             processGotArticleResponse model result
@@ -160,8 +161,8 @@ processInput model str =
     else
         ( { model | input = str, state = Loading }
         , Cmd.batch
-            [ getWords str
-            , Task.attempt (\_ -> Idle) <| Dom.focus "search"
+            [ Task.attempt (\_ -> Idle) <| Dom.focus "search"
+            , getWords str
             ]
         )
 
@@ -228,7 +229,14 @@ wordsList model =
 
 historyView : Model -> Html Msg
 historyView model =
-    div [] <| List.map (\word -> div [] [ text word ]) model.history
+    div
+        [ onWordClick SelectWord ]
+        (List.map clickableWordView model.history)
+
+
+clickableWordView : String -> Html Msg
+clickableWordView word =
+    div [ class "clickable" ] [ text word ]
 
 
 articleView : Model -> Html Msg
@@ -243,7 +251,7 @@ articleView model =
 
 makeWordOption : String -> Html Msg
 makeWordOption name =
-    div [ onWordSelect ] [ text name ]
+    div [ onWordOptionSelect ] [ text name ]
 
 
 decodeWordLabel : Decode.Decoder String
@@ -339,7 +347,7 @@ processResult : Result a (List Node) -> Html Msg
 processResult nodes =
     case nodes of
         Ok tree ->
-            div [ onWordClick ] (toVirtualDomWrapWords [ findSearchResultInList tree ])
+            div [ onWordClick Input ] (toVirtualDomWrapWords [ findSearchResultInList tree ])
 
         _ ->
             text "Error"
@@ -349,10 +357,10 @@ processResult nodes =
 -- Events
 
 
-onWordClick : Html.Attribute Msg
-onWordClick =
+onWordClick : (String -> Msg) -> Html.Attribute Msg
+onWordClick trigger =
     Events.on "click" <|
-        Decode.map pairToMsg <|
+        Decode.map (pairToMsg trigger) <|
             decodeClassTextPair
 
 
@@ -371,18 +379,23 @@ decodeClassTextPair =
     Decode.map2 Tuple.pair decodeClassName decodeInnerText
 
 
-pairToMsg : ( String, String ) -> Msg
-pairToMsg ( className, innerText ) =
+pairToMsg : (String -> Msg) -> ( String, String ) -> Msg
+pairToMsg trigger ( className, innerText ) =
     case className of
         "clickable" ->
-            SelectWord innerText
+            processClickableWord innerText |> trigger
 
         _ ->
             Idle
 
 
-onWordSelect : Html.Attribute Msg
-onWordSelect =
+processClickableWord : String -> String
+processClickableWord word =
+    Regex.replace stressRegex (always "") word
+
+
+onWordOptionSelect : Html.Attribute Msg
+onWordOptionSelect =
     Events.on "click" <|
         Decode.map SelectWord <|
             Decode.at [ "target", "innerText" ] Decode.string

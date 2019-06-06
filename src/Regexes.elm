@@ -1,4 +1,4 @@
-module Regexes exposing (assuredRegex, doctypeRegex, scriptTagRegex, trailingDivRegex, wordRegex)
+module Regexes exposing (doctypeRegex, scriptTagRegex, stressRegex, trailingDivRegex, wordRegex)
 
 import Regex exposing (Regex)
 
@@ -27,3 +27,8 @@ doctypeRegex =
 wordRegex : Regex
 wordRegex =
     assuredRegex "[А-Яа-яёо́]+|[A-Za-zĉŭĝ]+"
+
+
+stressRegex : Regex
+stressRegex =
+    assuredRegex "́"
