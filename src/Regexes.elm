@@ -26,7 +26,7 @@ doctypeRegex =
 
 wordRegex : Regex
 wordRegex =
-    assuredRegex "[А-Яа-яёо́]+|[A-Za-zĉŭĝ]+"
+    assuredRegex "[А-Яа-яёо́]+|[A-Za-zĉŭĝŝ]+"
 
 
 stressRegex : Regex

@@ -4,7 +4,7 @@ import Browser exposing (Document)
 import Browser.Dom as Dom exposing (focus)
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events as Events exposing (onInput)
+import Html.Events as Events exposing (onClick, onInput)
 import Html.Parser as Parser exposing (Node(..))
 import Http
 import Json.Decode as Decode
@@ -48,9 +48,9 @@ getArticle word model =
     Cmd.batch
         [ Http.get
             { url = urlBase ++ "/" ++ word
-            , expect = Http.expectString GotArticle
+            , expect = Http.expectString <| GotArticle word
             }
-        , saveHistory <| List.Extra.unique <| [ word ] ++ model.history
+        , saveHistory <| List.Extra.unique (word :: model.history)
         ]
 
 
@@ -66,12 +66,14 @@ type alias Model =
     , input : String
     , article : Maybe Article
     , history : List String
+    , localHistory : List String
+    , currentIndex : Int
     }
 
 
 init : List String -> ( Model, Cmd Msg )
 init history =
-    ( Model Initial "" Nothing history
+    ( Model Initial "" Nothing history [] 0
     , Cmd.none
     )
 
@@ -84,13 +86,19 @@ type alias GotWordsResult =
     List String
 
 
+type Direction
+    = Prev
+    | Next
+
+
 type Msg
     = Idle
     | Input String
     | SelectWord String
     | GotWords (Result Http.Error GotWordsResult)
-    | GotArticle (Result Http.Error Article)
+    | GotArticle String (Result Http.Error Article)
     | SetHistory (List String)
+    | NavigateHistory Direction
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -103,10 +111,10 @@ update msg model =
             processInput model str
 
         SelectWord str ->
-            ( { model | input = str }, getArticle str model )
+            ( { model | input = str, localHistory = str :: model.localHistory }, getArticle str model )
 
-        GotArticle result ->
-            processGotArticleResponse model result
+        GotArticle word result ->
+            processGotArticleResponse word model result
 
         SetHistory history ->
             ( { model | history = history }, Cmd.none )
@@ -114,10 +122,13 @@ update msg model =
         Idle ->
             ( model, Cmd.none )
 
+        NavigateHistory direction ->
+            navigate direction model
+
 
 view : Model -> Document Msg
 view model =
-    Document "Title"
+    Document "Dictionary"
         [ div []
             [ searchField model
             , loader model
@@ -125,6 +136,7 @@ view model =
             , wordsList model
             , articleView model
             , historyView model
+            , localHistoryView model
             ]
         ]
 
@@ -141,6 +153,25 @@ subscriptions model =
 trimLast : String -> String
 trimLast str =
     String.dropRight 1 str
+
+
+navigate : Direction -> Model -> ( Model, Cmd Msg )
+navigate direction model =
+    case direction of
+        Prev ->
+            ( { model | currentIndex = model.currentIndex + 1 }
+            , (takeHistoryAt (model.currentIndex + 1) model |> getArticle) <| model
+            )
+
+        Next ->
+            ( { model | currentIndex = model.currentIndex - 1 }
+            , (takeHistoryAt (model.currentIndex - 1) model |> getArticle) <| model
+            )
+
+
+takeHistoryAt : Int -> Model -> String
+takeHistoryAt at model =
+    Maybe.withDefault "" <| List.head <| List.drop at model.localHistory
 
 
 processGotWordsResponse : Model -> Result Http.Error GotWordsResult -> ( Model, Cmd Msg )
@@ -167,11 +198,13 @@ processInput model str =
         )
 
 
-processGotArticleResponse : Model -> Result Http.Error Article -> ( Model, Cmd Msg )
-processGotArticleResponse model result =
+processGotArticleResponse : String -> Model -> Result Http.Error Article -> ( Model, Cmd Msg )
+processGotArticleResponse word model result =
     case result of
         Ok article ->
-            ( { model | article = Just article }, Cmd.none )
+            ( { model | article = Just article }
+            , Cmd.none
+            )
 
         _ ->
             ( model, Cmd.none )
@@ -232,6 +265,24 @@ historyView model =
     div
         [ onWordClick SelectWord ]
         (List.map clickableWordView model.history)
+
+
+localHistoryView : Model -> Html Msg
+localHistoryView model =
+    div []
+        [ button
+            [ onClick <| NavigateHistory Prev
+            , disabled <| model.currentIndex >= List.length model.localHistory - 1
+            ]
+            [ text "<" ]
+        , button
+            [ onClick <| NavigateHistory Next
+            , disabled <| model.currentIndex <= 0
+            ]
+            [ text ">" ]
+        , div [] <| List.map (\word -> div [] [ text word ]) model.localHistory
+        , div [] [ text <| String.fromInt model.currentIndex ]
+        ]
 
 
 clickableWordView : String -> Html Msg
@@ -305,7 +356,8 @@ stripKom node =
     case node of
         Element name attrs children ->
             if containsKomClassName attrs then
-                Comment "" -- Comment используем вместо Text, так как Text делает лишнюю обертку в DOM дереве
+                Comment ""
+                -- Comment используем вместо Text, так как Text делает лишнюю обертку в DOM дереве
 
             else
                 Element name attrs <| List.map stripKom children
@@ -366,7 +418,7 @@ processResult : Result a (List Node) -> Html Msg
 processResult nodes =
     case nodes of
         Ok tree ->
-            div [ onWordClick Input ] (toVirtualDomWrapWords [ stripKom <| findSearchResultInList tree ])
+            div [ onWordClick SelectWord ] (toVirtualDomWrapWords [ stripKom <| findSearchResultInList tree ])
 
         _ ->
             text "Error"
