@@ -43,6 +43,16 @@ getWords query =
         }
 
 
+decodeWordLabel : Decode.Decoder String
+decodeWordLabel =
+    Decode.field "value" Decode.string
+
+
+decodeItems : Decode.Decoder (List String)
+decodeItems =
+    Decode.list decodeWordLabel
+
+
 getArticle : String -> Model -> Cmd Msg
 getArticle word model =
     Cmd.batch
@@ -210,6 +220,10 @@ processGotArticleResponse word model result =
             ( model, Cmd.none )
 
 
+
+-- Views
+
+
 searchField : Model -> Html Msg
 searchField model =
     div []
@@ -223,11 +237,6 @@ searchField model =
             ]
             []
         ]
-
-
-propagationlessKeyPress : Html.Attribute Msg
-propagationlessKeyPress =
-    Events.stopPropagationOn "keypress" <| Decode.succeed ( Idle, True )
 
 
 loader : Model -> Html Msg
@@ -303,16 +312,6 @@ articleView model =
 makeWordOption : String -> Html Msg
 makeWordOption name =
     div [ onWordOptionSelect ] [ text name ]
-
-
-decodeWordLabel : Decode.Decoder String
-decodeWordLabel =
-    Decode.field "value" Decode.string
-
-
-decodeItems : Decode.Decoder (List String)
-decodeItems =
-    Decode.list decodeWordLabel
 
 
 
@@ -429,9 +428,9 @@ processResult nodes =
 
 
 onWordClick : (String -> Msg) -> Html.Attribute Msg
-onWordClick trigger =
+onWordClick strToMsg =
     Events.on "click" <|
-        Decode.map (pairToMsg trigger) <|
+        Decode.map (pairToMsg strToMsg) <|
             decodeClassTextPair
 
 
@@ -451,10 +450,10 @@ decodeClassTextPair =
 
 
 pairToMsg : (String -> Msg) -> ( String, String ) -> Msg
-pairToMsg trigger ( className, innerText ) =
+pairToMsg strToMsg ( className, innerText ) =
     case className of
         "clickable" ->
-            processClickableWord innerText |> trigger
+            processClickableWord innerText |> strToMsg
 
         _ ->
             Idle
@@ -470,3 +469,8 @@ onWordOptionSelect =
     Events.on "click" <|
         Decode.map SelectWord <|
             Decode.at [ "target", "innerText" ] Decode.string
+
+
+propagationlessKeyPress : Html.Attribute Msg
+propagationlessKeyPress =
+    Events.stopPropagationOn "keypress" <| Decode.succeed ( Idle, True )
