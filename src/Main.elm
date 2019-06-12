@@ -5,6 +5,7 @@ import Browser.Dom as Dom exposing (focus)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events as Events exposing (onClick, onInput)
+import Html.Events.Extra.Touch as Touch
 import Html.Parser as Parser exposing (Node(..))
 import Http
 import Json.Decode as Decode
@@ -71,6 +72,12 @@ type State
     | Success (List String)
 
 
+type alias ClientRect =
+    { width : Float
+    , height : Float
+    }
+
+
 type alias Model =
     { state : State
     , input : String
@@ -78,12 +85,20 @@ type alias Model =
     , history : List String
     , localHistory : List String
     , currentIndex : Int
+    , startCoords : ( Float, Float )
+    , clientRect : ClientRect
     }
 
 
-init : List String -> ( Model, Cmd Msg )
-init history =
-    ( Model Initial "" Nothing history [] 0
+type alias Flags =
+    { history : List String
+    , clientRect : ClientRect
+    }
+
+
+init : Flags -> ( Model, Cmd Msg )
+init flags =
+    ( Model Initial "" Nothing flags.history [] 0 ( 0, 0 ) flags.clientRect
     , Cmd.none
     )
 
@@ -109,6 +124,9 @@ type Msg
     | GotArticle String (Result Http.Error Article)
     | SetHistory (List String)
     | NavigateHistory Direction
+    | TouchStartAt ( Float, Float )
+    | TouchMoveAt ( Float, Float )
+    | TouchEndAt ( Float, Float )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -135,11 +153,20 @@ update msg model =
         NavigateHistory direction ->
             navigate direction model
 
+        TouchStartAt coords ->
+            ( { model | startCoords = coords }, Cmd.none )
+
+        TouchMoveAt coords ->
+            ( model, Cmd.none )
+
+        TouchEndAt coords ->
+            ( { model | startCoords = coords }, Cmd.none )
+
 
 view : Model -> Document Msg
 view model =
     Document "Dictionary"
-        [ div []
+        [ rootElement model
             [ searchField model
             , loader model
             , errorBlock model
@@ -147,8 +174,68 @@ view model =
             , articleView model
             , historyView model
             , localHistoryView model
+            , div [] [ text <| Debug.toString model.startCoords ]
+            , div [] [ text <| Debug.toString ( model.clientRect.width, model.clientRect.height ) ]
             ]
         ]
+
+
+rootElement : Model -> List (Html Msg) -> Html Msg
+rootElement model children =
+    div
+        [ onTouch "start" <| TouchStartAt << touchCoordinates
+
+        -- , onTouch "move" <| TouchMoveAt << touchCoordinates
+        , onTouch "end" <| processTouchEnd model << touchCoordinates
+        ]
+        children
+
+
+processTouchEnd : Model -> ( Float, Float ) -> Msg
+processTouchEnd model ( x, y ) =
+    let
+        ( xs, ys ) =
+            model.startCoords
+    in
+    if xs >= model.clientRect.width * 0.4 && xs <= model.clientRect.width * 0.6 then
+        processTouchNavigation model ( x, y )
+
+    else
+        Idle
+
+
+processTouchNavigation : Model -> ( Float, Float ) -> Msg
+processTouchNavigation model ( x, y ) =
+    let
+        ( xs, ys ) =
+            model.startCoords
+    in
+    if vectorLength ( x - xs, y - ys ) >= 50 && ((x - xs) / abs (y - ys)) >= 3 then
+        NavigateHistory Prev
+
+    else if vectorLength ( x - xs, y - ys ) >= 50 && ((x - xs) / abs (y - ys)) <= -3 then
+        NavigateHistory Next
+
+    else
+        Idle
+
+
+vectorLength : ( Float, Float ) -> Float
+vectorLength ( x, y ) =
+    sqrt <| x ^ 2 + y ^ 2
+
+
+onTouch : String -> (Touch.Event -> Msg) -> Html.Attribute Msg
+onTouch name =
+    { stopPropagation = False, preventDefault = False }
+        |> Touch.onWithOptions ("touch" ++ name)
+
+
+touchCoordinates : Touch.Event -> ( Float, Float )
+touchCoordinates touchEvent =
+    List.head touchEvent.changedTouches
+        |> Maybe.map .clientPos
+        |> Maybe.withDefault ( 0, 0 )
 
 
 subscriptions : Model -> Sub Msg
@@ -169,14 +256,24 @@ navigate : Direction -> Model -> ( Model, Cmd Msg )
 navigate direction model =
     case direction of
         Prev ->
-            ( { model | currentIndex = model.currentIndex + 1 }
-            , (takeHistoryAt (model.currentIndex + 1) model |> getArticle) <| model
+            ( { model | currentIndex = nextIndex model }
+            , (takeHistoryAt (nextIndex model) model |> getArticle) <| model
             )
 
         Next ->
-            ( { model | currentIndex = model.currentIndex - 1 }
-            , (takeHistoryAt (model.currentIndex - 1) model |> getArticle) <| model
+            ( { model | currentIndex = prevIndex model }
+            , (takeHistoryAt (prevIndex model) model |> getArticle) <| model
             )
+
+
+nextIndex : Model -> Int
+nextIndex model =
+    Basics.min (model.currentIndex + 1) (List.length model.localHistory)
+
+
+prevIndex : Model -> Int
+prevIndex model =
+    Basics.max (model.currentIndex - 1) 0
 
 
 takeHistoryAt : Int -> Model -> String
