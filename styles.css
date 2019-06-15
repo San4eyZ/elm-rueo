@@ -1,0 +1,19 @@
+.root {
+  display: flex;
+}
+
+.left {
+  width: 25%;
+}
+
+.right {
+  width: 25%;
+}
+
+.middle {
+  flex-grow: 1;
+}
+
+.search {
+    display: flex;
+}
