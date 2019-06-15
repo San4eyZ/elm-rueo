@@ -82,10 +82,24 @@ getArticle word model =
         ]
 
 
-type State
+cancelRequests : Cmd Msg
+cancelRequests =
+    Cmd.batch
+        [ Http.cancel "getArticle"
+        , Http.cancel "getWords"
+        ]
+
+
+type Stage
     = Failure
     | Loading
     | Initial
+
+
+type alias State =
+    { suggest : Stage
+    , article : Stage
+    }
 
 
 type alias ClientRect =
@@ -113,9 +127,14 @@ type alias Flags =
     }
 
 
+initialState : State
+initialState =
+    { article = Initial, suggest = Initial }
+
+
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { state = Initial
+    ( { state = initialState
       , input = ""
       , article = Nothing
       , suggest = Nothing
@@ -168,8 +187,8 @@ update msg model =
         Clear ->
             ( { model | input = "", article = Nothing, suggest = Nothing }, Cmd.none )
 
-        SelectWord str ->
-            ( { model | input = str, localHistory = str :: model.localHistory }, getArticle str model )
+        SelectWord word ->
+            processWordSelection model word
 
         GotArticle _ result ->
             processGotArticleResponse model result
@@ -251,19 +270,26 @@ processGotWordsResponse : Model -> Result Http.Error GotWordsResult -> ( Model, 
 processGotWordsResponse model result =
     case result of
         Ok words ->
-            ( { model | suggest = Just (List.take 10 words) }, Cmd.none )
+            ( { model | suggest = Just (List.take 10 words), state = updateSuggestState Initial model }, Cmd.none )
 
         _ ->
-            ( { model | state = Failure }, Cmd.none )
+            ( { model | state = updateSuggestState Failure model }
+            , Cmd.none
+            )
+
+
+updateSuggestState : Stage -> Model -> State
+updateSuggestState stage { state } =
+    { state | suggest = stage }
 
 
 processInput : Model -> String -> ( Model, Cmd Msg )
 processInput model str =
     if str == "" then
-        ( { model | input = str, state = Initial }, Cmd.none )
+        ( { model | input = str, state = initialState }, cancelRequests )
 
     else
-        ( { model | input = str, state = Loading }
+        ( { model | input = str, state = updateSuggestState Loading model }
         , Cmd.batch
             [ Task.attempt (\_ -> Idle) <| Dom.focus "search"
             , getWords str
@@ -271,11 +297,30 @@ processInput model str =
         )
 
 
+processWordSelection : Model -> String -> ( Model, Cmd Msg )
+processWordSelection model word =
+    ( { model
+        | input = word
+        , localHistory = word :: model.localHistory
+        , state = updateArticleState Loading model
+      }
+    , getArticle word model
+    )
+
+
+updateArticleState : Stage -> Model -> State
+updateArticleState stage { state } =
+    { state | article = stage }
+
+
 processGotArticleResponse : Model -> Result Http.Error Article -> ( Model, Cmd Msg )
 processGotArticleResponse model result =
     case result of
         Ok article ->
-            ( { model | article = Just article }
+            ( { model
+                | article = Just article
+                , state = updateArticleState Initial model
+              }
             , Cmd.none
             )
 
@@ -320,6 +365,10 @@ rootElement model children =
 
 searchField : Model -> Html Msg
 searchField model =
+    let
+        isValid =
+            List.length (Maybe.withDefault [] model.suggest) > 0 || model.suggest == Nothing
+    in
     div [ class "search" ]
         [ input
             [ type_ "text"
@@ -328,6 +377,9 @@ searchField model =
             , placeholder "Поиск..."
             , id "search"
             , propagationlessKeyPress
+            , autocomplete False
+            , spellcheck False
+            , classList [ ( "search__field", True ), ( "search__field_error", not isValid ) ]
             ]
             []
         , clearButton model
@@ -338,26 +390,6 @@ searchField model =
 clearButton : Model -> Html Msg
 clearButton model =
     button [ onClick Clear ] [ text "X" ]
-
-
-loader : Model -> Html Msg
-loader model =
-    case model.state of
-        Loading ->
-            div [] [ text "Загрузка" ]
-
-        _ ->
-            div [] []
-
-
-errorBlock : Model -> Html Msg
-errorBlock model =
-    case model.state of
-        Failure ->
-            div [] [ text "Ошибка" ]
-
-        _ ->
-            div [] []
 
 
 wordsList : Model -> Html Msg

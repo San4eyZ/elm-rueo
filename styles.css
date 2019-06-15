@@ -15,5 +15,13 @@
 }
 
 .search {
-    display: flex;
+  display: flex;
+}
+
+.search__field {
+  outline: none;
+}
+
+.search__field_error {
+  color: #f00;
 }
