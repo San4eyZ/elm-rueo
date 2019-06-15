@@ -1,4 +1,4 @@
-module Regexes exposing (doctypeRegex, scriptTagRegex, stressRegex, trailingDivRegex, wordRegex)
+module Regexes exposing (articleNotFoundRegex, doctypeRegex, scriptTagRegex, stressRegex, trailingDivRegex, wordRegex)
 
 import Regex exposing (Regex)
 
@@ -32,3 +32,8 @@ wordRegex =
 stressRegex : Regex
 stressRegex =
     assuredRegex "́"
+
+
+articleNotFoundRegex : Regex
+articleNotFoundRegex =
+    assuredRegex "Подходящей словарной статьи не найдено"

@@ -4,10 +4,12 @@
 
 .left {
   width: 25%;
+  flex-shrink: 0;
 }
 
 .right {
   width: 25%;
+  flex-shrink: 0;
 }
 
 .middle {

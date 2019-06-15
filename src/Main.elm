@@ -41,7 +41,7 @@ getWords query =
         [ Http.request
             { method = "get"
             , url = urlBase ++ "/?ajax&term=" ++ query
-            , expect = Http.expectJson GotWords decodeItems
+            , expect = Http.expectJson (GotWords query) decodeItems
             , body = Http.emptyBody
             , tracker = Just "getWords"
             , headers = []
@@ -111,6 +111,7 @@ type alias ClientRect =
 type alias Model =
     { state : State
     , input : String
+    , lastSuccessfulSearch : String
     , article : Maybe Article
     , suggest : Maybe (List String)
     , history : List String
@@ -136,6 +137,7 @@ init : Flags -> ( Model, Cmd Msg )
 init flags =
     ( { state = initialState
       , input = ""
+      , lastSuccessfulSearch = ""
       , article = Nothing
       , suggest = Nothing
       , history = flags.history
@@ -166,7 +168,7 @@ type Msg
     | Input String
     | Clear
     | SelectWord String
-    | GotWords (Result Http.Error GotWordsResult)
+    | GotWords String (Result Http.Error GotWordsResult)
     | GotArticle String (Result Http.Error Article)
     | SetHistory (List String)
     | NavigateHistory Direction
@@ -178,20 +180,28 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        GotWords result ->
-            processGotWordsResponse model result
+        GotWords word result ->
+            processGotWordsResponse word model result
 
         Input str ->
             processInput model str
 
         Clear ->
-            ( { model | input = "", article = Nothing, suggest = Nothing }, Cmd.none )
+            ( { model
+                | input = ""
+                , article = Nothing
+                , suggest = Nothing
+                , state = initialState
+                , lastSuccessfulSearch = ""
+              }
+            , cancelRequests
+            )
 
         SelectWord word ->
             processWordSelection model word
 
-        GotArticle _ result ->
-            processGotArticleResponse model result
+        GotArticle word result ->
+            processGotArticleResponse word model result
 
         SetHistory history ->
             ( { model | history = history }, Cmd.none )
@@ -266,11 +276,23 @@ takeHistoryAt at model =
     Maybe.withDefault "" <| List.head <| List.drop at model.localHistory
 
 
-processGotWordsResponse : Model -> Result Http.Error GotWordsResult -> ( Model, Cmd Msg )
-processGotWordsResponse model result =
+processGotWordsResponse : String -> Model -> Result Http.Error GotWordsResult -> ( Model, Cmd Msg )
+processGotWordsResponse word model result =
     case result of
         Ok words ->
-            ( { model | suggest = Just (List.take 10 words), state = updateSuggestState Initial model }, Cmd.none )
+            if List.length words == 0 && word /= "" then
+                ( { model | state = updateSuggestState Failure model }
+                , getWords (String.dropRight 1 word)
+                )
+
+            else
+                ( { model
+                    | suggest = Just (List.take 10 words)
+                    , state = updateSuggestState Initial model
+                    , lastSuccessfulSearch = word
+                  }
+                , Cmd.none
+                )
 
         _ ->
             ( { model | state = updateSuggestState Failure model }
@@ -286,12 +308,19 @@ updateSuggestState stage { state } =
 processInput : Model -> String -> ( Model, Cmd Msg )
 processInput model str =
     if str == "" then
-        ( { model | input = str, state = initialState }, cancelRequests )
+        ( { model
+            | input = str
+            , state = initialState
+            , suggest = Nothing
+            , lastSuccessfulSearch = str
+          }
+        , cancelRequests
+        )
 
     else
         ( { model | input = str, state = updateSuggestState Loading model }
         , Cmd.batch
-            [ Task.attempt (\_ -> Idle) <| Dom.focus "search"
+            [ Task.attempt (always Idle) <| Dom.focus "search"
             , getWords str
             ]
         )
@@ -301,8 +330,10 @@ processWordSelection : Model -> String -> ( Model, Cmd Msg )
 processWordSelection model word =
     ( { model
         | input = word
-        , localHistory = word :: model.localHistory
+        , localHistory = word :: List.drop model.currentIndex model.localHistory
         , state = updateArticleState Loading model
+        , suggest = Nothing
+        , currentIndex = 0
       }
     , getArticle word model
     )
@@ -313,19 +344,34 @@ updateArticleState stage { state } =
     { state | article = stage }
 
 
-processGotArticleResponse : Model -> Result Http.Error Article -> ( Model, Cmd Msg )
-processGotArticleResponse model result =
+processGotArticleResponse : String -> Model -> Result Http.Error Article -> ( Model, Cmd Msg )
+processGotArticleResponse word model result =
     case result of
         Ok article ->
-            ( { model
-                | article = Just article
-                , state = updateArticleState Initial model
-              }
-            , Cmd.none
-            )
+            if Regex.contains articleNotFoundRegex article then
+                ( { model
+                    | article = Nothing
+                    , state = updateArticleState Failure model
+                  }
+                , getWords word
+                )
+
+            else
+                ( { model
+                    | article = Just article
+                    , state = updateArticleState Initial model
+                    , lastSuccessfulSearch = word
+                  }
+                , Cmd.none
+                )
 
         _ ->
-            ( model, Cmd.none )
+            ( { model
+                | article = Nothing
+                , state = updateArticleState Failure model
+              }
+            , getWords word
+            )
 
 
 
@@ -367,7 +413,7 @@ searchField : Model -> Html Msg
 searchField model =
     let
         isValid =
-            List.length (Maybe.withDefault [] model.suggest) > 0 || model.suggest == Nothing
+            model.lastSuccessfulSearch == model.input || model.state.suggest == Loading
     in
     div [ class "search" ]
         [ input
