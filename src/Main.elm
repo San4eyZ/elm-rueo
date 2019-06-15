@@ -41,7 +41,7 @@ getWords query =
         [ Http.request
             { method = "get"
             , url = urlBase ++ "/?ajax&term=" ++ query
-            , expect = Http.expectJson (GotWords query) decodeItems
+            , expect = Http.expectJson (GotSuggest query) decodeItems
             , body = Http.emptyBody
             , tracker = Just "getWords"
             , headers = []
@@ -75,7 +75,6 @@ getArticle word model =
             , headers = []
             , timeout = Nothing
             }
-        , saveHistory <| List.Extra.unique (word :: model.history)
 
         -- команды начиинают исполнение с конца списка
         , Http.cancel "getArticle"
@@ -112,7 +111,7 @@ type alias Model =
     { state : State
     , input : String
     , lastSuccessfulSearch : String
-    , article : Maybe Article
+    , article : Maybe (Html Msg)
     , suggest : Maybe (List String)
     , history : List String
     , localHistory : List String
@@ -166,9 +165,10 @@ type Direction
 type Msg
     = Idle
     | Input String
-    | Clear
+    | ClearAll
+    | ClearSuggest
     | SelectWord String
-    | GotWords String (Result Http.Error GotWordsResult)
+    | GotSuggest String (Result Http.Error GotWordsResult)
     | GotArticle String (Result Http.Error Article)
     | SetHistory (List String)
     | NavigateHistory Direction
@@ -180,13 +180,13 @@ type Msg
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        GotWords word result ->
-            processGotWordsResponse word model result
+        GotSuggest word result ->
+            processGotSuggestResponse word model result
 
         Input str ->
             processInput model str
 
-        Clear ->
+        ClearAll ->
             ( { model
                 | input = ""
                 , article = Nothing
@@ -196,6 +196,9 @@ update msg model =
               }
             , cancelRequests
             )
+
+        ClearSuggest ->
+            ( { model | suggest = Nothing }, Cmd.none )
 
         SelectWord word ->
             processWordSelection model word
@@ -251,19 +254,27 @@ navigate : Direction -> Model -> ( Model, Cmd Msg )
 navigate direction model =
     case direction of
         Prev ->
-            ( { model | currentIndex = nextIndex model }
-            , (takeHistoryAt (nextIndex model) model |> getArticle) <| model
+            let
+                word =
+                    takeHistoryAt (nextIndex model) model
+            in
+            ( { model | currentIndex = nextIndex model, input = word, suggest = Nothing }
+            , getArticle word model
             )
 
         Next ->
-            ( { model | currentIndex = prevIndex model }
-            , (takeHistoryAt (prevIndex model) model |> getArticle) <| model
+            let
+                word =
+                    takeHistoryAt (prevIndex model) model
+            in
+            ( { model | currentIndex = prevIndex model, input = word, suggest = Nothing }
+            , getArticle word model
             )
 
 
 nextIndex : Model -> Int
 nextIndex model =
-    Basics.min (model.currentIndex + 1) (List.length model.localHistory)
+    Basics.min (model.currentIndex + 1) (List.length model.localHistory - 1)
 
 
 prevIndex : Model -> Int
@@ -276,8 +287,8 @@ takeHistoryAt at model =
     Maybe.withDefault "" <| List.head <| List.drop at model.localHistory
 
 
-processGotWordsResponse : String -> Model -> Result Http.Error GotWordsResult -> ( Model, Cmd Msg )
-processGotWordsResponse word model result =
+processGotSuggestResponse : String -> Model -> Result Http.Error GotWordsResult -> ( Model, Cmd Msg )
+processGotSuggestResponse word model result =
     case result of
         Ok words ->
             if List.length words == 0 && word /= "" then
@@ -358,11 +369,11 @@ processGotArticleResponse word model result =
 
             else
                 ( { model
-                    | article = Just article
+                    | article = Just <| prepareArticle article
                     , state = updateArticleState Initial model
                     , lastSuccessfulSearch = word
                   }
-                , Cmd.none
+                , saveHistory <| List.Extra.unique (word :: model.history)
                 )
 
         _ ->
@@ -394,7 +405,6 @@ middleColumn : Model -> Html Msg
 middleColumn model =
     div [ class "middle" ]
         [ searchField model
-        , wordsList model
         , articleView model
         ]
 
@@ -430,29 +440,40 @@ searchField model =
             []
         , clearButton model
         , localHistoryView model
+        , suggestView model
         ]
 
 
 clearButton : Model -> Html Msg
 clearButton model =
-    button [ onClick Clear ] [ text "X" ]
+    button [ onClick ClearAll, class "button", class "button-clear" ] [ text "X" ]
 
 
-wordsList : Model -> Html Msg
-wordsList model =
+suggestView : Model -> Html Msg
+suggestView model =
     case model.suggest of
         Just suggest ->
-            div [] (List.map makeWordOption suggest)
+            div [ class "suggest" ] (List.map makeWordOption suggest)
 
         Nothing ->
-            div [] []
+            text ""
+
+
+makeWordOption : String -> Html Msg
+makeWordOption name =
+    div [ onWordOptionSelect, class "clickable", class "suggest__item" ] [ text name ]
 
 
 historyView : Model -> Html Msg
 historyView model =
     div
-        [ onWordClick SelectWord ]
-        (List.map clickableWordView model.history)
+        [ onWordClick SelectWord, class "history" ]
+        (historyHeadingView :: List.map historyItemView model.history)
+
+
+historyHeadingView : Html Msg
+historyHeadingView =
+    h2 [ class "history__heading" ] [ text "История" ]
 
 
 localHistoryView : Model -> Html Msg
@@ -461,34 +482,33 @@ localHistoryView model =
         [ button
             [ onClick <| NavigateHistory Prev
             , disabled <| model.currentIndex >= List.length model.localHistory - 1
+            , class "button"
+            , class "button-prev"
             ]
             [ text "<" ]
         , button
             [ onClick <| NavigateHistory Next
             , disabled <| model.currentIndex <= 0
+            , class "button"
+            , class "button-next"
             ]
             [ text ">" ]
         ]
 
 
-clickableWordView : String -> Html Msg
-clickableWordView word =
-    div [ class "clickable" ] [ text word ]
+historyItemView : String -> Html Msg
+historyItemView word =
+    div [ class "clickable", class "history__item" ] [ text word ]
 
 
 articleView : Model -> Html Msg
 articleView model =
     case model.article of
         Just article ->
-            prepareArticle article
+            article
 
         Nothing ->
             div [] []
-
-
-makeWordOption : String -> Html Msg
-makeWordOption name =
-    div [ onWordOptionSelect ] [ text name ]
 
 
 
@@ -628,12 +648,11 @@ decodeClassTextPair =
 
 pairToMsg : (String -> Msg) -> ( String, String ) -> Msg
 pairToMsg strToMsg ( className, innerText ) =
-    case className of
-        "clickable" ->
-            processClickableWord innerText |> strToMsg
+    if String.contains "clickable" className then
+        processClickableWord innerText |> strToMsg
 
-        _ ->
-            Idle
+    else
+        Idle
 
 
 processClickableWord : String -> String
