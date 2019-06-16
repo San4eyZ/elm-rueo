@@ -6,7 +6,7 @@ import Regex exposing (Regex)
 assuredRegex : String -> Regex
 assuredRegex str =
     Maybe.withDefault Regex.never <|
-        Regex.fromStringWith { caseInsensitive = False, multiline = True } str
+        Regex.fromStringWith { caseInsensitive = False, multiline = False } str
 
 
 scriptTagRegex : Regex
@@ -16,7 +16,7 @@ scriptTagRegex =
 
 trailingDivRegex : Regex
 trailingDivRegex =
-    assuredRegex "<\\/div>(?!(.|\n)*?(div)(.|\n)*?$)"
+    assuredRegex "<\\/div>(?!(.|\n|\r)*?(div)(.|\n|\r)*$)"
 
 
 doctypeRegex : Regex

@@ -712,7 +712,7 @@ containsKomClassName attributes =
 
 reducers : List (String -> String)
 reducers =
-    [ removeDoctype, removeTrailingDiv, removeScripts ]
+    [ removeDoctype, removeScripts, removeTrailingDiv ]
 
 
 prepareArticle : Article -> Html Msg
