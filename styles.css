@@ -59,6 +59,10 @@ html {
 
 .suggest__item {
   padding: 3px 4px 3px 8px;
+} 
+
+.suggest__item_active {
+  background: #ccc;
 }
 
 .search__field {

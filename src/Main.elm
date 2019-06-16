@@ -115,7 +115,8 @@ type alias Model =
     , suggest : Maybe (List String)
     , history : List String
     , localHistory : List String
-    , currentIndex : Int
+    , currentHistoryIndex : Int
+    , currentSuggestIndex : Int
     , startCoords : ( Float, Float )
     , clientRect : ClientRect
     }
@@ -141,7 +142,8 @@ init flags =
       , suggest = Nothing
       , history = flags.history
       , localHistory = []
-      , currentIndex = 0
+      , currentHistoryIndex = 0
+      , currentSuggestIndex = -1
       , startCoords = ( 0, 0 )
       , clientRect = flags.clientRect
       }
@@ -172,6 +174,7 @@ type Msg
     | GotArticle String (Result Http.Error Article)
     | SetHistory (List String)
     | NavigateHistory Direction
+    | NavigateSuggest Direction
     | TouchStartAt ( Float, Float )
     | TouchMoveAt ( Float, Float )
     | TouchEndAt ( Float, Float )
@@ -213,7 +216,10 @@ update msg model =
             ( model, Cmd.none )
 
         NavigateHistory direction ->
-            navigate direction model
+            navigateHistory direction model
+
+        NavigateSuggest direction ->
+            navigateSuggest direction model
 
         TouchStartAt coords ->
             ( { model | startCoords = coords }, Cmd.none )
@@ -250,41 +256,83 @@ trimLast str =
     String.dropRight 1 str
 
 
-navigate : Direction -> Model -> ( Model, Cmd Msg )
-navigate direction model =
+navigateHistory : Direction -> Model -> ( Model, Cmd Msg )
+navigateHistory direction model =
     case direction of
         Prev ->
             let
                 word =
-                    takeHistoryAt (nextIndex model) model
+                    takeHistoryAt (nextIndex History model) model
             in
-            ( { model | currentIndex = nextIndex model, input = word, suggest = Nothing }
+            ( { model | currentHistoryIndex = nextIndex History model, input = word, suggest = Nothing }
             , getArticle word model
             )
 
         Next ->
             let
                 word =
-                    takeHistoryAt (prevIndex model) model
+                    takeHistoryAt (prevIndex History model) model
             in
-            ( { model | currentIndex = prevIndex model, input = word, suggest = Nothing }
+            ( { model | currentHistoryIndex = prevIndex History model, input = word, suggest = Nothing }
             , getArticle word model
             )
 
 
-nextIndex : Model -> Int
-nextIndex model =
-    Basics.min (model.currentIndex + 1) (List.length model.localHistory - 1)
+navigateSuggest : Direction -> Model -> ( Model, Cmd Msg )
+navigateSuggest direction model =
+    if model.suggest == Nothing then
+        ( model, Cmd.none )
+
+    else
+        case direction of
+            Prev ->
+                let
+                    index =
+                        prevIndex Suggest model
+                in
+                ( { model | currentSuggestIndex = index, input = takeSuggestAt index model }, Cmd.none )
+
+            Next ->
+                let
+                    index =
+                        nextIndex Suggest model
+                in
+                ( { model | currentSuggestIndex = index, input = takeSuggestAt index model }, Cmd.none )
 
 
-prevIndex : Model -> Int
-prevIndex model =
-    Basics.max (model.currentIndex - 1) 0
+type NavigationType
+    = Suggest
+    | History
+
+
+nextIndex : NavigationType -> Model -> Int
+nextIndex navType model =
+    case navType of
+        Suggest ->
+            Basics.min (model.currentSuggestIndex + 1) (List.length (Maybe.withDefault [] model.suggest) - 1)
+
+        History ->
+            Basics.min (model.currentHistoryIndex + 1) (List.length model.localHistory - 1)
+
+
+prevIndex : NavigationType -> Model -> Int
+prevIndex navType model =
+    case navType of
+        Suggest ->
+            Basics.max (model.currentSuggestIndex - 1) 0
+
+        option2 ->
+            Basics.max (model.currentHistoryIndex - 1) 0
 
 
 takeHistoryAt : Int -> Model -> String
 takeHistoryAt at model =
     Maybe.withDefault "" <| List.head <| List.drop at model.localHistory
+
+
+takeSuggestAt : Int -> Model -> String
+takeSuggestAt at model =
+    Maybe.withDefault "" <| List.head <| List.drop at (Maybe.withDefault [] model.suggest)
 
 
 processGotSuggestResponse : String -> Model -> Result Http.Error GotWordsResult -> ( Model, Cmd Msg )
@@ -324,12 +372,17 @@ processInput model str =
             , state = initialState
             , suggest = Nothing
             , lastSuccessfulSearch = str
+            , currentSuggestIndex = -1
           }
         , cancelRequests
         )
 
     else
-        ( { model | input = str, state = updateSuggestState Loading model }
+        ( { model
+            | input = str
+            , state = updateSuggestState Loading model
+            , currentSuggestIndex = -1
+          }
         , Cmd.batch
             [ Task.attempt (always Idle) <| Dom.focus "search"
             , getWords str
@@ -341,10 +394,11 @@ processWordSelection : Model -> String -> ( Model, Cmd Msg )
 processWordSelection model word =
     ( { model
         | input = word
-        , localHistory = word :: List.drop model.currentIndex model.localHistory
+        , localHistory = word :: List.drop model.currentHistoryIndex model.localHistory
         , state = updateArticleState Loading model
         , suggest = Nothing
-        , currentIndex = 0
+        , currentHistoryIndex = 0
+        , currentSuggestIndex = -1
       }
     , getArticle word model
     )
@@ -423,12 +477,14 @@ searchField : Model -> Html Msg
 searchField model =
     let
         isValid =
-            model.lastSuccessfulSearch == model.input || model.state.suggest == Loading
+            model.lastSuccessfulSearch == model.input || model.state.suggest == Loading || model.currentSuggestIndex /= -1
     in
     div [ class "search" ]
         [ input
             [ type_ "text"
             , onInput Input
+            , onArrowDown
+            , onEnterPress model.input
             , value model.input
             , placeholder "Поиск..."
             , id "search"
@@ -453,15 +509,24 @@ suggestView : Model -> Html Msg
 suggestView model =
     case model.suggest of
         Just suggest ->
-            div [ class "suggest" ] (List.map makeWordOption suggest)
+            div [ class "suggest" ] (List.indexedMap (makeWordOption model) suggest)
 
         Nothing ->
             text ""
 
 
-makeWordOption : String -> Html Msg
-makeWordOption name =
-    div [ onWordOptionSelect, class "clickable", class "suggest__item" ] [ text name ]
+makeWordOption : Model -> Int -> String -> Html Msg
+makeWordOption model index name =
+    let
+        isActive =
+            model.currentSuggestIndex == index
+    in
+    div
+        [ onWordOptionSelect
+        , class "clickable"
+        , classList [ ( "suggest__item", True ), ( "suggest__item_active", isActive ) ]
+        ]
+        [ text name ]
 
 
 historyView : Model -> Html Msg
@@ -481,14 +546,14 @@ localHistoryView model =
     div []
         [ button
             [ onClick <| NavigateHistory Prev
-            , disabled <| model.currentIndex >= List.length model.localHistory - 1
+            , disabled <| model.currentHistoryIndex >= List.length model.localHistory - 1
             , class "button"
             , class "button-prev"
             ]
             [ text "<" ]
         , button
             [ onClick <| NavigateHistory Next
-            , disabled <| model.currentIndex <= 0
+            , disabled <| model.currentHistoryIndex <= 0
             , class "button"
             , class "button-next"
             ]
@@ -622,6 +687,44 @@ processResult nodes =
 
 
 -- Events
+
+
+onArrowDown : Html.Attribute Msg
+onArrowDown =
+    Events.on "keydown" (keyDownDecoder arrowKeyCodeToMsg)
+
+
+onEnterPress : String -> Html.Attribute Msg
+onEnterPress input =
+    Events.on "keyup" (keyDownDecoder <| enterKeyCodeToMsg input)
+
+
+keyDownDecoder : (Int -> Msg) -> Decode.Decoder Msg
+keyDownDecoder codeToMsg =
+    Decode.map codeToMsg Events.keyCode
+
+
+arrowKeyCodeToMsg : Int -> Msg
+arrowKeyCodeToMsg code =
+    case code of
+        38 ->
+            NavigateSuggest Prev
+
+        40 ->
+            NavigateSuggest Next
+
+        _ ->
+            Idle
+
+
+enterKeyCodeToMsg : String -> Int -> Msg
+enterKeyCodeToMsg input code =
+    case code of
+        13 ->
+            SelectWord input
+
+        _ ->
+            Idle
 
 
 onWordClick : (String -> Msg) -> Html.Attribute Msg
