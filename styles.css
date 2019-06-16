@@ -2,10 +2,12 @@ body,
 html {
   margin: 0;
   height: 100%;
+  overflow-x: hidden;
 }
 
 .root {
   display: flex;
+  position: relative;
   height: 100%;
 }
 
@@ -59,7 +61,7 @@ html {
 
 .suggest__item {
   padding: 3px 4px 3px 8px;
-} 
+}
 
 .suggest__item_active {
   background: #ccc;
@@ -71,6 +73,7 @@ html {
   padding: 0;
   padding-left: 8px;
   border: 1px solid #ddd;
+  min-width: 100px;
 
   outline: none;
   font-size: 16px;
@@ -78,6 +81,10 @@ html {
 
 .search__field_error {
   color: #f00;
+}
+
+.navigation-buttons {
+  display: flex;
 }
 
 .history {
@@ -96,6 +103,7 @@ html {
 }
 
 .button {
+  flex-shrink: 0;
   border: none;
   padding: 0;
   margin: 0;
@@ -107,10 +115,18 @@ html {
 
   transition: background-color 0.1s;
   cursor: pointer;
+
+  /* Отключаем подсветку кнопок при нажатии в браузерах на webkit */
+  -webkit-tap-highlight-color:  rgba(255, 255, 255, 0); 
 }
 
 .button:hover {
   background: #ccc;
+}
+
+/* overwrite hover */
+.button:disabled {
+  background: #ddd;
 }
 
 .clickable {
@@ -120,4 +136,73 @@ html {
 
 .clickable:hover {
   background: #ccc;
+}
+
+.overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+
+  background: #000;
+  opacity: 0.3;
+
+  animation: fade-in 0.3s linear 0 1 both;
+}
+
+.button-history {
+  display: none;
+}
+
+.button-menu {
+  display: none;
+}
+
+@media (max-width: 576px) {
+  .button-history {
+    display: block;
+  }
+
+  .button-menu {
+    display: block;
+  }
+
+  .left,
+  .right {
+    z-index: 10;
+    position: absolute;
+    width: 70%;
+    height: 100%;
+
+    background: #fff;
+  }
+
+  .right {
+    left: 100%;
+    transition: left 0.3s;
+  }
+
+  .right_active {
+    left: 30%;
+  }
+
+  .left {
+    right: 100%;
+    transition: right 0.3s;
+  }
+
+  .left_active {
+    right: 30%;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 0.3;
+  }
 }

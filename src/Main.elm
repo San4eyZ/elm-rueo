@@ -107,6 +107,12 @@ type alias ClientRect =
     }
 
 
+type alias MobileView =
+    { historyVisible : Bool
+    , menuVisible : Bool
+    }
+
+
 type alias Model =
     { state : State
     , input : String
@@ -119,6 +125,7 @@ type alias Model =
     , currentSuggestIndex : Int
     , startCoords : ( Float, Float )
     , clientRect : ClientRect
+    , mobileView : MobileView
     }
 
 
@@ -131,6 +138,11 @@ type alias Flags =
 initialState : State
 initialState =
     { article = Initial, suggest = Initial }
+
+
+initialMobileView : MobileView
+initialMobileView =
+    { historyVisible = False, menuVisible = False }
 
 
 init : Flags -> ( Model, Cmd Msg )
@@ -146,6 +158,7 @@ init flags =
       , currentSuggestIndex = -1
       , startCoords = ( 0, 0 )
       , clientRect = flags.clientRect
+      , mobileView = initialMobileView
       }
     , Cmd.none
     )
@@ -178,6 +191,9 @@ type Msg
     | TouchStartAt ( Float, Float )
     | TouchMoveAt ( Float, Float )
     | TouchEndAt ( Float, Float )
+    | ToggleMenu
+    | ToggleHistory
+    | InitView
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -230,6 +246,37 @@ update msg model =
         TouchEndAt coords ->
             ( { model | startCoords = coords }, Cmd.none )
 
+        ToggleMenu ->
+            toggleMenu model
+
+        ToggleHistory ->
+            toggleHistory model
+
+        InitView ->
+            ( { model | mobileView = initialMobileView }, Cmd.none )
+
+
+toggleMenu : Model -> ( Model, Cmd Msg )
+toggleMenu model =
+    let
+        newMobileView =
+            { historyVisible = model.mobileView.historyVisible
+            , menuVisible = not model.mobileView.menuVisible
+            }
+    in
+    ( { model | mobileView = newMobileView }, Cmd.none )
+
+
+toggleHistory : Model -> ( Model, Cmd Msg )
+toggleHistory model =
+    let
+        newMobileView =
+            { historyVisible = not model.mobileView.historyVisible
+            , menuVisible = model.mobileView.menuVisible
+            }
+    in
+    ( { model | mobileView = newMobileView }, Cmd.none )
+
 
 view : Model -> Document Msg
 view model =
@@ -238,6 +285,7 @@ view model =
             [ leftColumn model
             , middleColumn model
             , rightColumn model
+            , overlay model
             ]
         ]
 
@@ -445,12 +493,12 @@ processGotArticleResponse word model result =
 
 leftColumn : Model -> Html Msg
 leftColumn model =
-    div [ class "left" ] []
+    div [ classList  [("left", True), ("left_active", model.mobileView.menuVisible)] ] []
 
 
 rightColumn : Model -> Html Msg
 rightColumn model =
-    div [ class "right" ]
+    div [ classList [("right", True), ("right_active", model.mobileView.historyVisible)] ]
         [ historyView model
         ]
 
@@ -461,6 +509,15 @@ middleColumn model =
         [ searchField model
         , articleView model
         ]
+
+
+overlay : Model -> Html Msg
+overlay model =
+    if model.mobileView.historyVisible || model.mobileView.menuVisible then
+        div [ class "overlay", onClick InitView ] []
+
+    else
+        text ""
 
 
 rootElement : Model -> List (Html Msg) -> Html Msg
@@ -480,7 +537,8 @@ searchField model =
             model.lastSuccessfulSearch == model.input || model.state.suggest == Loading || model.currentSuggestIndex /= -1
     in
     div [ class "search" ]
-        [ input
+        [ menuButton model
+        , input
             [ type_ "text"
             , onInput Input
             , onArrowDown
@@ -497,6 +555,7 @@ searchField model =
         , clearButton model
         , localHistoryView model
         , suggestView model
+        , historyButton model
         ]
 
 
@@ -513,6 +572,16 @@ suggestView model =
 
         Nothing ->
             text ""
+
+
+historyButton : Model -> Html Msg
+historyButton model =
+    button [ class "button", class "button-history", onClick ToggleHistory ] [ text "H" ]
+
+
+menuButton : Model -> Html Msg
+menuButton model =
+    button [ class "button", class "button-menu", onClick ToggleMenu ] [ text "M" ]
 
 
 makeWordOption : Model -> Int -> String -> Html Msg
@@ -543,7 +612,7 @@ historyHeadingView =
 
 localHistoryView : Model -> Html Msg
 localHistoryView model =
-    div []
+    div [ class "navigation-buttons" ]
         [ button
             [ onClick <| NavigateHistory Prev
             , disabled <| model.currentHistoryIndex >= List.length model.localHistory - 1
